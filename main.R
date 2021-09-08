@@ -1,5 +1,7 @@
 library(tidyverse)
 library(docstring)
+library(grid)
+library(gridExtra)
 
 source("R/utils.R")
 
@@ -15,25 +17,9 @@ tbl_features <- crossing(x1, x2)
 
 # Create Categories -------------------------------------------------------
 
-n_cat_per_feat <- 5
+n_cat_per_feat <- c(2, 4, 8, 10)
 stepsize_cat <- max_x / n_cat_per_feat
-tbl_categories <- create_categories(tbl_features, n_cat_per_feat)
+l_tbl_categories <- map(n_cat_per_feat, create_categories, tbl = tbl_features)
+pl <- map2(l_tbl_categories, stepsize_cat, plot_clustered_grid)
+plot_all_clusterings(pl)
 
-ggplot(tbl_categories, aes(x1, x2, group = category)) +
-  geom_raster(aes(fill = category)) +
-  theme_bw() + 
-  theme(
-    panel.background = element_rect(fill = NA),
-    panel.ontop = TRUE,
-    panel.grid.minor = element_blank(),
-    panel.grid.major = element_line(size = .1),
-  ) +
-  scale_fill_gradient(name = "Category\n",
-                      low = "#FFFFFF",
-                      high = "#012345") +
-  scale_x_continuous(breaks = seq(0, max_x, stepsize_cat)) +
-  scale_y_continuous(breaks = seq(0, max_x, stepsize_cat)) +
-  labs(
-    x = expression(X["1"]),
-    y = expression(X["2"])
-  )

@@ -19,3 +19,44 @@ create_categories <- function(tbl, n_cat_per_feat) {
   tbl$category <- as.numeric(tbl$category)
   return(tbl)
 }
+
+plot_clustered_grid <- function(tbl, stepsize_cat) {
+  #' plot clusters in grid
+  #' 
+  #' @description plot categories in a 2d space with equidistanct spacing
+  #' @param tbl \code{tibble} containing the two features and the category as columns
+  #' @param stepsize_cat \code{double} the stepsize to be shown on the axes and on the grid
+  #' @return the ggplot2 object
+  #' 
+  ggplot(tbl, aes(x1, x2, group = category)) +
+    geom_raster(aes(fill = category)) +
+    theme_bw() + 
+    theme(
+      panel.background = element_rect(fill = NA),
+      panel.ontop = TRUE,
+      panel.grid.minor = element_blank(),
+      panel.grid.major = element_line(size = .1),
+    ) +
+    scale_fill_gradient(name = "Category\n",
+                        low = "#FFFFFF",
+                        high = "#012345") +
+    scale_x_continuous(breaks = seq(0, max_x, stepsize_cat)) +
+    scale_y_continuous(breaks = seq(0, max_x, stepsize_cat)) +
+    labs(
+      x = expression(X["1"]),
+      y = expression(X["2"])
+    )
+}
+
+plot_all_clusterings <- function(pl, n_cols = 2) {
+  #' plot all different clusterings on a page
+  #' 
+  #' @param pl all the ggplots
+  #' @param n_cols nr columns of the page layout
+  n_plots <- length(pl)
+  n_cols <- 2
+  n_rows <- ceiling(n_plots / n_cols)
+  marrangeGrob(pl, nrow = n_rows, ncol = n_cols)
+}
+
+
