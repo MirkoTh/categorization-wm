@@ -52,7 +52,7 @@ predict_rmc <- function(
   # feature counts is a cluster by feature by value array 
   # and includes pseudocounts from prior
   feature_counts <- array(rep(salience, each = max_clusters),
-                          dim = c(max_clusters, n_features, n_values))
+                          dim = c(max_clusters, n_features, max(n_values, n_categories)))
   n_clusters <- 1 # position of the lowest currently empty cluster
   
   out <- c()
@@ -152,25 +152,103 @@ predict_rmc_n <- function(
   
   idxs <- 1:nrow(tbl)
   idx_shuffle <- sample(idxs, n, replace = TRUE)
-  tbl <- tbl[idx_shuffle, ]
+  tbl_used <- tbl[idx_shuffle, ]
   
-  stimuli <- as.matrix(tbl[, c("x1", "x2")])
-  feedback <- tbl$category
+  stimuli <- as.matrix(tbl_used[, c("x1", "x2")])
+  feedback <- tbl_used$category
 
   l_pred <- predict_rmc(
     stimuli = stimuli,
-    n_values = length(unique(tbl$x1)), # assuming all features same
+    n_values = length(unique(tbl_used$x1)), # assuming all features same
     feedback = feedback,
     salience_f = salience_f,
     salience_l = salience_l,
     coupling = coupling,
     max_clusters = max_clusters
   )
-  tbl$preds <- apply(
+  tbl_used$preds <- apply(
     l_pred$cat_probs, 1, FUN = function(x) which.max(x)
   )
+  tbl_used$n_training <- n
+  tbl_used$n_categories <- length(unique(tbl_used$category))
   
-  return(tbl)
+  return(tbl_used)
+}
+
+
+summarize_blocks <- function(
+  #' summarize categorized stimuli into n_blocks and 
+  #' show plot summarized by block if required
+  #' 
+  #' @param tbl \code{tibble} with category labels and category predictions as columns
+  #' @param n_trials_per_block number of traisl per block to summarize
+  #' @param show_plot \code{logical} should a raster plot be shown by block
+  #' to see categorization predictions along with true categories? defaults to TRUE
+  
+  #' @return a \code{list} with two tibbles; (a) the summarized results and
+  #' (b) the assignments in the originally handed over tibble
+  #'
+  tbl, 
+  n_trials_per_block, 
+  show_plot = TRUE
+) {
+  n_blocks <- ceiling(nrow(tbl)/n_trials_per_block)
+  tbl$block_nr <- rep(
+    seq(1, n_blocks), 
+    each = ceiling(nrow(tbl)/n_blocks)
+  )[1:nrow(tbl)]
+  # summarize accuracy per block
+  tbl_results <- tbl %>%
+    group_by(n_categories, n_training, block_nr) %>%
+    summarize(
+      accuracy = mean(category == preds)
+    ) %>% ungroup()
+  # prepare tbl for grouped plot
+  tbl_long <- tbl %>%
+    pivot_longer(
+      cols = c(category, preds),
+      names_to = "Label",
+      values_to = "Value"
+    )
+  # plots: accuracy over blocks and raster
+  pl <- ggplot(tbl_long, aes(x1, x2, group = Value)) +
+    geom_raster(aes(fill = Value)) +
+    facet_wrap(block_nr ~ Label, ncol = ceiling(n_blocks / 2) * 2)
+  if (show_plot) {
+    grid.draw(pl)
+  }
+  return(list(
+    tbl_results, # summarized results
+    tbl # category assignments
+  ))
+  
+}
+
+
+plot_block_summary <- function(l) {
+  l_blocks <- map(l, 1)
+  tbl_blocks <- reduce(l_blocks, rbind)
+  tbl_blocks$n_training <- as.factor(tbl_blocks$n_training)
+  tbl_summary <- tbl_blocks %>%
+    group_by(n_categories, n_training, block_nr) %>%
+    summarize(
+      accuracy = mean(accuracy)
+    )
+  
+  pl <- ggplot(tbl_summary, aes(block_nr, accuracy, group = n_training)) +
+    geom_line(aes(color = n_training)) +
+    geom_point(color = "white", size = 3) +
+    geom_point(aes(color = n_training)) +
+    facet_wrap(~ n_categories, ncol = 3) +
+    theme_bw() +
+    scale_color_brewer(name = "Nr. Training\nTrials", palette = "Set1") +
+    scale_x_continuous(breaks = seq(1, max(tbl_blocks$block_nr))) +
+    coord_cartesian(ylim = c(0, 1)) +
+    labs(
+      x = "Block Nr.",
+      y = "Proportion Correct"
+    )
+  grid.draw(pl)
 }
 
 
