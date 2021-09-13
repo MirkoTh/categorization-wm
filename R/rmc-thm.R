@@ -122,3 +122,55 @@ predict_rmc <- function(
   out$assignments <- assignments
   return(out)
 }
+
+
+predict_rmc_n <- function(
+  #' predict n randomly sampled stimuli from stimulus space using Anderson's RMC
+  #' 
+  #' @param tbl \code{tibble} with feature values and category labels as columns
+  #' @param n number of trials to sample with replacement and predict
+  #' @param max_clusters \code{integer} max nr of clusters to use in the code
+  #' @param salience_f \code{integer} feature-salience prior
+  #' @param salience_l \code{integer} label-salience prior
+  #' @param coupling \code{integer} coupling probability c
+  #' @param phi \code{numeric} scaling parameter for response probabilities
+  #' @param assignments \code{vector} of integers stating the category
+  #' assignments. Defaults ot NULL such that inferred categories are saved
+  #' @param print_posterior {logical} stating whether the posterior should
+  #' be printed while code is running
+  #' @return the predicted category probabilities and category assignments
+  #' as a \code{list}
+  #'
+  tbl,
+  n,
+  max_clusters,
+  salience_f = 1,
+  salience_l = 1,
+  coupling = .5,
+  phi = 1
+) {
+  
+  idxs <- 1:nrow(tbl)
+  idx_shuffle <- sample(idxs, n, replace = TRUE)
+  tbl <- tbl[idx_shuffle, ]
+  
+  stimuli <- as.matrix(tbl[, c("x1", "x2")])
+  feedback <- tbl$category
+
+  l_pred <- predict_rmc(
+    stimuli = stimuli,
+    n_values = length(unique(tbl$x1)), # assuming all features same
+    feedback = feedback,
+    salience_f = salience_f,
+    salience_l = salience_l,
+    coupling = coupling,
+    max_clusters = max_clusters
+  )
+  tbl$preds <- apply(
+    l_pred$cat_probs, 1, FUN = function(x) which.max(x)
+  )
+  
+  return(tbl)
+}
+
+
