@@ -23,7 +23,8 @@ predict_rmc <- function(
   #' assignments. Defaults ot NULL such that inferred categories are saved
   #' @param print_posterior {logical} stating whether the posterior should
   #' be printed while code is running
-  #' @return the predicted category probabilities and category assignments as a {list}
+  #' @return the predicted category probabilities and category assignments
+  #' as a \code{list}
   #' 
   stimuli,
   n_values, # nr of values for the features assuming all features have the same nr
@@ -38,6 +39,8 @@ predict_rmc <- function(
 ) {
   n_stimuli <- nrow(stimuli)
   n_features <- ncol(stimuli) + 1 # including label feature
+  n_categories <- length(unique(feedback))
+  
   if(is.null(assignments)){
     assignments <- rep(0, n_stimuli) # assignment of stimuli to clusters
     update_assignments <- TRUE
@@ -53,7 +56,7 @@ predict_rmc <- function(
   n_clusters <- 1 # position of the lowest currently empty cluster
   
   out <- c()
-  out$cat_probs <- matrix(nrow = nrow(stimuli), ncol = n_values)
+  out$cat_probs <- matrix(nrow = nrow(stimuli), ncol = n_categories)
   for(i in 1:n_stimuli){
     # calculate prior, likelihoods, and posterior
     # clusters that already have stimuli
@@ -65,37 +68,37 @@ predict_rmc <- function(
     )
     # add labels to end of stimuli
     possible_stimuli <- cbind(
-      matrix(rep(stimuli[i, ], n_values), nrow = n_values, byrow = TRUE),
-      seq(0, (n_values - 1), by = 1)
+      matrix(rep(stimuli[i, ], n_categories), nrow = n_categories, byrow = TRUE),
+      seq(1, (n_categories), by = 1)
     )
     # cols: cluster nr, feature nr (including cat label), values
     feature_index <- cbind(
-      rep(1:n_clusters, times = n_features*n_values),
-      rep(1:n_features, times = n_values, each = n_clusters),
-      rep(t(possible_stimuli + 1), each = n_clusters)
+      rep(1:n_clusters, times = n_features * n_categories),
+      rep(1:n_features, times = n_categories, each = n_clusters),
+      rep(t(possible_stimuli), each = n_clusters)
     )
     this_num <- array(
       feature_counts[feature_index], 
-      dim = c(n_clusters, n_features, n_values)
+      dim = c(n_clusters, n_features, n_categories)
     )
     # what goes into den(ominator) to achieve a uniform prior?
     multiply_salience <- c(
       rep(n_values, (n_features - 1)), 
-      length(unique(feedback))
+      n_categories
       )
     this_den <- array(
       outer(cluster_counts[1:n_clusters], multiply_salience * salience, FUN = "+"),
-      dim=c(n_clusters, n_features, n_values)
+      dim=c(n_clusters, n_features, n_categories)
     )
     log_likelihood <- apply(
       log(this_num) - log(this_den), MARGIN = c(1, 3), FUN = sum
     )
     log_posterior <- matrix(
-      log_prior, nrow = n_clusters, ncol = n_values
+      log_prior, nrow = n_clusters, ncol = n_categories
     ) + log_likelihood
     
     if(print_posterior){
-      print(exp(log_posterior[, feedback[i] + 1]))
+      print(exp(log_posterior[, feedback[i]]))
     }
     
     # compute prediction
@@ -105,12 +108,12 @@ predict_rmc <- function(
     # update cluster assignment and count variables
     if(update_assignments){
       # using Anderson (1991) update rule
-      assignments[i] <- which.max(log_posterior[, feedback[i] + 1])
+      assignments[i] <- which.max(log_posterior[, feedback[i]])
     }
     cluster_counts[assignments[i]] <- cluster_counts[assignments[i]] + 1
     feature_index_update <- cbind(rep(assignments[i], times=n_features), 
                                   1:n_features, 
-                                  c(stimuli[i, ], feedback[i]) + 1)
+                                  c(stimuli[i, ], feedback[i]))
     feature_counts[feature_index_update] <- (
       feature_counts[feature_index_update] + 1
     )
