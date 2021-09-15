@@ -48,13 +48,12 @@ plot_clustered_grid <- function(tbl, stepsize_cat) {
     )
 }
 
-plot_all_clusterings <- function(pl, n_cols = 2) {
-  #' plot all different clusterings on a page
+plot_arrangement <- function(pl, n_cols = 2) {
+  #' plot a list of plots on one page
   #' 
   #' @param pl all the ggplots
   #' @param n_cols nr columns of the page layout
   n_plots <- length(pl)
-  n_cols <- 2
   n_rows <- ceiling(n_plots / n_cols)
   marrangeGrob(pl, nrow = n_rows, ncol = n_cols)
 }
