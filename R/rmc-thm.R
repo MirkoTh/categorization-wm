@@ -175,7 +175,7 @@ predict_rmc_continuous <- function(
   # feature counts is a cluster by feature by value array 
   # and includes pseudocounts from prior
   feature_counts <- array(rep(salience, each = max_clusters),
-                          dim = c(max_clusters, n_features_cat, max(n_values, n_categories)))
+                          dim = c(max_clusters, n_features_cat, max(n_values_cat, n_categories)))
   n_clusters <- 1 # position of the lowest currently empty cluster
   
   out <- c()
@@ -197,8 +197,8 @@ predict_rmc_continuous <- function(
     
     # likelihood for categorical features
     pdfs_cat_log <- pdf_cat_log(
-      stimuli, i, features_cat, n_categories, n_clusters,
-      n_features_cat
+      stimuli, i, features_cat, feature_counts, 
+      n_values_cat, n_categories, n_clusters, n_features_cat
     )
     
     # likelihood for continuous features
@@ -282,7 +282,7 @@ pdf_cont_log <- function(
     pivot_wider(names_from = variable, values_from = value)
   agg_stats <- tbl_summary %>%
     split(~ aggregation) %>%
-    map(~ select(.x, features_cont))
+    map(~ select(.x, all_of(features_cont)))
   mu_i <- (
     (lambda_0 * mu_0 + agg_stats[["n"]] * agg_stats[["mean"]]) /
       (lambda_0 + agg_stats[["n"]])
@@ -322,11 +322,11 @@ pdf_cont_log <- function(
 
 
 pdf_cat_log <- function(
-  stimuli, i, features_cat, n_categories, n_clusters,
+  stimuli, i, features_cat, feature_counts, 
+  n_values_cat, n_categories, n_clusters,
   n_features_cat
 ) {
   # add labels to end of stimuli
-  
   possible_stimuli <- cbind(
     matrix(rep(stimuli[i, features_cat], n_categories), 
            nrow = n_categories, byrow = TRUE),
@@ -345,7 +345,7 @@ pdf_cat_log <- function(
   )
   # what goes into den(ominator) to achieve a uniform prior?
   multiply_salience <- c(
-    rep(n_values, (n_features_cat - 1)), 
+    rep(n_values_cat, (n_features_cat - 1)), 
     n_categories
   )
   this_den <- array(
