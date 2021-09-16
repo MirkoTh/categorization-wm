@@ -252,6 +252,18 @@ predict_rmc_continuous <- function(
 }
 
 pdf_cont_log <- function(
+  #' pds of values from categorical feature dimensions
+  #' 
+  #' @param stimuli \code{tibble} with continuous features as columns
+  #' @param assignments \code{integer vector} with previous cluster assignments 
+  #' @param i running index of trials in experiment
+  #' @param features_cont \code{character vector} with continuous feature names
+  #' @param mu_0 mean of prior mean normal distribution
+  #' @param lambda_0 confidence in prior mean
+  #' @param a_0 df of prior chisq variance distribution
+  #' @param sigma_sq_0 expected prior variance
+  #' @return 3D \code{array} with the log probabilities of item combinations per category
+  #'
   stimuli, assignments, i, features_cont, 
   mu_0, lambda_0, a_0, sigma_sq_0
 ) {
@@ -313,15 +325,23 @@ pdf_cont_log <- function(
       list(v_x, v_mu_i, v_scale, v_ai), dt2)
   ) %>% log()
   
-  #  %>% 
-  # matrix(ncol = n_features_cont, byrow = TRUE) %>%
-  #   as_tibble()
-  # names(tbl_out) <- features_cont
   return(v_out)
 }
 
 
 pdf_cat_log <- function(
+  #' pds of values from continuous feature dimensions
+  #' 
+  #' @param stimuli \code{tibble} with continuous features as columns
+  #' @param i running index of trials in experiment
+  #' @param features_cat \code{character vector} with categorical feature names
+  #' @param feature_counts feature counts \code{matrix}
+  #' @param n_values_cat \code{integer} levels of the categorical features (assuming all the same)
+  #' @param n_categories \code{integer} stating the nr of categories
+  #' @param n_clusters \code{integer} stating the max nr of clusters
+  #' @param n_features_cat \code{integer} stating the number of categorical features
+  #' @return 3D \code{array} with the log probabilities of item combinations per category
+  #'
   stimuli, i, features_cat, feature_counts, 
   n_values_cat, n_categories, n_clusters,
   n_features_cat
@@ -362,10 +382,13 @@ predict_rmc_n <- function(
   #' 
   #' @param tbl \code{tibble} with feature values and category labels as columns
   #' @param n number of trials to sample with replacement and predict
+  #' @param features_cat \code{character vector} with names of categorical features
+  #' @param features_cont \code{character vector} with names of continuous features
+  #' @param n_values_cat \code{integer} levels of the cateorical features (assuming all the same)
   #' @param max_clusters \code{integer} max nr of clusters to use in the code
+  #' @param coupling \code{integer} coupling probability c
   #' @param salience_f \code{integer} feature-salience prior
   #' @param salience_l \code{integer} label-salience prior
-  #' @param coupling \code{integer} coupling probability c
   #' @param phi \code{numeric} scaling parameter for response probabilities
   #' @param assignments \code{vector} of integers stating the category
   #' assignments. Defaults to NULL such that inferred categories are saved
@@ -376,27 +399,35 @@ predict_rmc_n <- function(
   #'
   tbl,
   n,
+  features_cat,
+  features_cont,
+  n_values_cat,
   max_clusters,
+  coupling,
   salience_f = 1,
   salience_l = 1,
-  coupling = .5,
-  phi = 1
+  phi = 1,
+  assignments = NULL
 ) {
   
   idxs <- 1:nrow(tbl)
   idx_shuffle <- sample(idxs, n, replace = TRUE)
   tbl_used <- tbl[idx_shuffle, ]
   
-  stimuli <- as.matrix(tbl_used[, c("x1", "x2")])
+  stimuli <- tbl_used[, c("x1", "x2")]
   feedback <- tbl_used$category
   
-  l_pred <- predict_rmc(
+  l_pred <- predict_rmc_continuous(
     stimuli = stimuli,
-    n_values = length(unique(tbl_used$x1)), # assuming all features same
+    features_cat = features_cat,
+    features_cont = features_cont,
+    n_values_cat = n_values_cat,
     feedback = feedback,
     salience_f = salience_f,
     salience_l = salience_l,
     coupling = coupling,
+    phi = phi,
+    assignments = assignments,
     max_clusters = max_clusters
   )
   tbl_used$preds <- apply(
@@ -459,8 +490,19 @@ summarize_blocks <- function(
 
 
 plot_block_summary <- function(l) {
-  l_blocks <- map(l, 1)
-  tbl_blocks <- reduce(l_blocks, rbind)
+  #' summarize categorized stimuli into n_blocks and 
+  #' show plot summarized by block if required
+  #' 
+  #' @param l nested \code{list} containing \code{lists} 
+  #' with block summaries and tibbles of all trials
+  #' @return nothing, just plots
+  #' 
+  if (length(l) > 2) {
+    l_blocks <- map(l, 1)
+    tbl_blocks <- reduce(l_blocks, rbind)
+  } else {
+    tbl_blocks <- l[[1]]
+  }
   tbl_blocks$n_training <- as.factor(tbl_blocks$n_training)
   tbl_summary <- tbl_blocks %>%
     group_by(n_categories, n_training, block_nr) %>%
