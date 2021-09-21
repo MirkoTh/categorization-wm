@@ -127,14 +127,17 @@ predict_rmc_continuous <- function(
   #' predict from Anderson's RMC using continuous features
   #' 
   #' @description predict from Anderson's rational model of categorization (1991)
-  #' using the original infererence algorithm for the posterior (aka local MAP)
+  #' using the original inference algorithm for the posterior (aka local MAP)
   #' @param stimuli \code{matrix} containing the feature values of one stimulus per row
   #' @param features_cat \code{vector} with names of categorical features as strings
   #' @param features_cont \code{vector} with names of continuous features as strings
+  #' @param n_values_cat number of levels for the categorical features
+  #' @param n_categories number of categories
   #' @param feedback \code{integer vector} containing category labels as integers
   #' @param params \code{list} containing model parameters 
   #' (salience_f, salience_l, a_0, lambda_0, coupling, phi)
-  #' @param max_clusters \code{integer} max nr of clusters to use in the code
+  #' @param previous_learning \code{list} containing cluster_counts vector and
+  #' feature_counts array for previously learned categories
   #' @param assignments \code{vector} of integers stating the category
   #' assignments. Defaults to NULL such that inferred categories are saved
   #' @param print_posterior {logical} stating whether the posterior should
@@ -145,48 +148,56 @@ predict_rmc_continuous <- function(
   stimuli,
   features_cat,
   features_cont,
+  n_values_cat,
+  n_categories,
   feedback,
   params,
-  max_clusters = 100, 
+  previous_learning = NULL,
   assignments = NULL, 
   print_posterior = FALSE
 ) {
   # unpack parameters
-  salience_f <- params[["salience_f"]]
-  salience_l <- params[["salience_l"]]
-  a_0 <- params[["a_0"]]
-  lamda_0 <- params[["lambda_0"]]
-  coupling <- params[["coupling"]]
-  phi <- params[["phi"]]
-  
+  env <- rlang::current_env()
+  list2env(params, env)
+
   # stimuli information
   n_stimuli <- nrow(stimuli)
   n_features_cat <- length(features_cat) + 1 # including label feature
-  n_values_cat <- length(unique(stimuli[, features_cat[1]])) # assuming all cats equal
   n_features_cont <- length(features_cont)
-  n_categories <- length(unique(feedback))
-  
   assignments <- rep(0, n_stimuli) # assignment of stimuli to clusters
+  max_clusters <- nrow(stimuli)
   
   salience <- c(rep(salience_f, times = (n_features_cat - 1)), salience_l)
   
-  cluster_counts <- rep(0, max_clusters) # counts of stimuli in each cluster
-  # feature counts is a cluster by feature by value array 
-  # and includes pseudocounts from prior
-  feature_counts <- array(
-    rep(salience, each = max_clusters),
-    dim = c(max_clusters, n_features_cat, max(n_values_cat, n_categories))
-  )
-  n_clusters <- 1 # position of the lowest currently empty cluster
+  # cluster_counts: counts of stimuli in each cluster
+  # feature_counts: cluster x feature x value array, includes prior pseudocounts
+  # n_cluster: # position of the lowest currently empty cluster
+  if (!is.null(previous_learning)) {
+    cluster_counts <- previous_learning[["cluster_counts"]]
+    feature_counts <- previous_learning[["feature_counts"]]
+    n_clusters <- length(cluster_counts[cluster_counts != 0]) + 1
+  } else {
+    cluster_counts <- rep(0, max_clusters)
+    feature_counts <- array(
+      rep(salience, each = max_clusters),
+      dim = c(max_clusters, n_features_cat, max(n_values_cat, n_categories))
+    )
+    n_clusters <- 1
+  }
   
   out <- c()
   out$cat_probs <- matrix(nrow = nrow(stimuli), ncol = n_categories)
   
-  # these parameters are set as relative to the stimulus space, but they 
-  # could be handed over as parameters as well
-  mu_0 <- (min(stimuli) + max(stimuli)) / 2
-  sigma_sq_0 <- (max(stimuli) / 5) ^ 2
   for(i in 1:n_stimuli){
+    i_prev <- i
+    stimuli_concat <- stimuli
+    assignments_concat <- assignments
+    if (!is.null(previous_learning)) {
+      stimuli_concat <- rbind(previous_learning[["stimuli"]], stimuli[i, ])
+      assignments_concat <- c(previous_learning[["assignments"]], assignments[i])
+      i_prev <- nrow(previous_learning[["stimuli"]]) + 1
+    }
+    
     # calculate prior, likelihoods, and posterior
     # clusters that already have stimuli
     log_prior <- log(coupling) + log(cluster_counts[1:n_clusters])
@@ -198,13 +209,13 @@ predict_rmc_continuous <- function(
     
     # likelihood for categorical features
     pdfs_cat_log <- pdf_cat_log(
-      stimuli, i, features_cat, salience, feature_counts, cluster_counts,
+      stimuli_concat, i_prev, features_cat, salience, feature_counts, cluster_counts,
       n_values_cat, n_categories, n_clusters, n_features_cat
     )
     
     # likelihood for continuous features
     pdfs_cont_log <- pdf_cont_log(
-      stimuli, assignments, i, features_cont, mu_0, lambda_0, a_0, sigma_sq_0
+      stimuli_concat, assignments_concat, i_prev, features_cont, mu_0, lambda_0, a_0, sigma_sq_0
     )
     pdfs_cont_log <- array(
       rep(pdfs_cont_log, n_categories),
@@ -224,7 +235,7 @@ predict_rmc_continuous <- function(
       log_prior, nrow = n_clusters, ncol = n_categories
     ) + log_likelihood
     
-    if(print_posterior){
+    if(print_posterior & !is.null(feedback)){
       print(exp(log_posterior[, feedback[i]]))
     }
     
@@ -232,16 +243,14 @@ predict_rmc_continuous <- function(
     label_posterior <- colSums(exp(log_posterior - max(log_posterior)))
     out$cat_probs[i, ] <- label_posterior^phi / sum(label_posterior^phi)
     
-    
-    if (feedback_given) {
-      # update cluster assignment and count variables
-      # using Anderson (1991) update rule
+    if (!is.null(feedback)) {
+      # update cluster assignment and count variables using Anderson update rule
       assignments[i] <- which.max(log_posterior[, feedback[i]])
       cluster_counts[assignments[i]] <- cluster_counts[assignments[i]] + 1
       feature_index_update <- cbind(
         rep(assignments[i], times=n_features_cat), 
         1:n_features_cat, 
-        c(stimuli[i, features_cat] %>% as_vector(), feedback[i])
+        c(stimuli_concat[i, features_cat] %>% as_vector(), feedback[i])
       )
       feature_counts[feature_index_update] <- (
         feature_counts[feature_index_update] + 1
@@ -250,7 +259,10 @@ predict_rmc_continuous <- function(
     }
     
   }
+  out$stimuli <- stimuli
   out$assignments <- assignments
+  out$feature_counts <- feature_counts
+  out$cluster_counts <- cluster_counts
   return(out)
 }
 
@@ -407,10 +419,7 @@ predict_rmc_n <- function(
   features_cont,
   n_values_cat,
   max_clusters,
-  coupling,
-  salience_f = 1,
-  salience_l = 1,
-  phi = 1,
+  params,
   assignments = NULL
 ) {
   
@@ -421,18 +430,19 @@ predict_rmc_n <- function(
   stimuli <- tbl_used[, c("x1", "x2")]
   feedback <- tbl_used$category
   
+  env <- rlang::current_env()
+  list2env(params, env)
+  
   l_pred <- predict_rmc_continuous(
     stimuli = stimuli,
     features_cat = features_cat,
     features_cont = features_cont,
     n_values_cat = n_values_cat,
+    n_categories = length(unique(tbl_used$category)),
     feedback = feedback,
-    salience_f = salience_f,
-    salience_l = salience_l,
-    coupling = coupling,
-    phi = phi,
-    assignments = assignments,
-    max_clusters = max_clusters
+    params = params,
+    previous_learning = NULL,
+    assignments = assignments
   )
   tbl_used$preds <- apply(
     l_pred$cat_probs, 1, FUN = function(x) which.max(x)
