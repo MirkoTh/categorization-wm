@@ -140,7 +140,7 @@ predict_rmc_continuous <- function(
   #' @param phi \code{numeric} scaling parameter for response probabilities
   #' @param max_clusters \code{integer} max nr of clusters to use in the code
   #' @param assignments \code{vector} of integers stating the category
-  #' assignments. Defaults ot NULL such that inferred categories are saved
+  #' assignments. Defaults to NULL such that inferred categories are saved
   #' @param print_posterior {logical} stating whether the posterior should
   #' be printed while code is running
   #' @return the predicted category probabilities and category assignments
@@ -164,18 +164,16 @@ predict_rmc_continuous <- function(
   n_features_cont <- length(features_cont)
   n_categories <- length(unique(feedback))
   
-  if(is.null(assignments)){
-    assignments <- rep(0, n_stimuli) # assignment of stimuli to clusters
-    update_assignments <- TRUE
-  }else{
-    update_assignments <- FALSE # assignments given to model in advance
-  }
+  assignments <- rep(0, n_stimuli) # assignment of stimuli to clusters
+  
   cluster_counts <- rep(0, max_clusters) # counts of stimuli in each cluster
-  salience <- c(rep(salience_f, times = ncol(stimuli)), salience_l)
+  salience <- c(rep(salience_f, times = (n_features_cat - 1)), salience_l)
   # feature counts is a cluster by feature by value array 
   # and includes pseudocounts from prior
-  feature_counts <- array(rep(salience, each = max_clusters),
-                          dim = c(max_clusters, n_features_cat, max(n_values_cat, n_categories)))
+  feature_counts <- array(
+    rep(salience, each = max_clusters),
+    dim = c(max_clusters, n_features_cat, max(n_values_cat, n_categories))
+  )
   n_clusters <- 1 # position of the lowest currently empty cluster
   
   out <- c()
@@ -197,7 +195,7 @@ predict_rmc_continuous <- function(
     
     # likelihood for categorical features
     pdfs_cat_log <- pdf_cat_log(
-      stimuli, i, features_cat, feature_counts, 
+      stimuli, i, features_cat, salience, feature_counts, cluster_counts,
       n_values_cat, n_categories, n_clusters, n_features_cat
     )
     
@@ -231,21 +229,23 @@ predict_rmc_continuous <- function(
     label_posterior <- colSums(exp(log_posterior - max(log_posterior)))
     out$cat_probs[i, ] <- label_posterior^phi / sum(label_posterior^phi)
     
-    # update cluster assignment and count variables
-    if(update_assignments){
+    
+    if (feedback_given) {
+      # update cluster assignment and count variables
       # using Anderson (1991) update rule
       assignments[i] <- which.max(log_posterior[, feedback[i]])
+      cluster_counts[assignments[i]] <- cluster_counts[assignments[i]] + 1
+      feature_index_update <- cbind(
+        rep(assignments[i], times=n_features_cat), 
+        1:n_features_cat, 
+        c(stimuli[i, features_cat] %>% as_vector(), feedback[i])
+      )
+      feature_counts[feature_index_update] <- (
+        feature_counts[feature_index_update] + 1
+      )
+      n_clusters <- max(assignments) + 1
     }
-    cluster_counts[assignments[i]] <- cluster_counts[assignments[i]] + 1
-    feature_index_update <- cbind(
-      rep(assignments[i], times=n_features_cat), 
-      1:n_features_cat, 
-      c(stimuli[i, features_cat] %>% as_vector(), feedback[i])
-    )
-    feature_counts[feature_index_update] <- (
-      feature_counts[feature_index_update] + 1
-    )
-    n_clusters <- max(assignments) + 1
+    
   }
   out$assignments <- assignments
   return(out)
@@ -318,7 +318,7 @@ pdf_cont_log <- function(
   v_x <- rep(stimuli[i, features_cont] %>% as_vector(), n_clusters)
   v_mu_i <- as.vector(t(mu_i))
   v_scale <- as.vector(t(scale))
-  v_ai <- rep(update_i$a_i, each = n_features_cont)
+  v_ai <- rep(update_i$a_i, each = length(features_cont))
   
   v_out <- suppressWarnings(
     pmap_dbl(
@@ -335,16 +335,17 @@ pdf_cat_log <- function(
   #' @param stimuli \code{tibble} with continuous features as columns
   #' @param i running index of trials in experiment
   #' @param features_cat \code{character vector} with categorical feature names
+  #' @param salience \code {integer vector} categorical and label priors
   #' @param feature_counts feature counts \code{matrix}
+  #' @param cluster_counts cluster count \code{integer vector}
   #' @param n_values_cat \code{integer} levels of the categorical features (assuming all the same)
   #' @param n_categories \code{integer} stating the nr of categories
   #' @param n_clusters \code{integer} stating the max nr of clusters
   #' @param n_features_cat \code{integer} stating the number of categorical features
   #' @return 3D \code{array} with the log probabilities of item combinations per category
   #'
-  stimuli, i, features_cat, feature_counts, 
-  n_values_cat, n_categories, n_clusters,
-  n_features_cat
+  stimuli, i, features_cat, salience, feature_counts, cluster_counts,
+  n_values_cat, n_categories, n_clusters, n_features_cat
 ) {
   # add labels to end of stimuli
   possible_stimuli <- cbind(
@@ -524,6 +525,29 @@ plot_block_summary <- function(l) {
       y = "Proportion Correct"
     )
   grid.draw(pl)
+}
+
+
+wrap_rmc <- function(coupling, phi, tbl_data) { # params
+  # p_1 <- params[1]
+  # p_2 <- params[2]
+  l_preds <- predict_rmc_continuous(
+    stimuli = tbl_data[, c("x1", "x2")], 
+    features_cat = c(),
+    features_cont = c("x1", "x2"),
+    n_values_cat = c(),
+    feedback = tbl_data$category,
+    salience_f = 1,
+    salience_l = 1,
+    coupling = coupling,#p_1,#
+    phi = phi, #p_2, #, 
+    max_clusters = nrow(tbl_data),
+    print_posterior = FALSE
+  )
+  neg_ll <- sum(log(l_preds$cat_probs[cbind(1:nrow(tbl_data), tbl_data$category)]))
+  n_cluster <- length(unique(l_preds$assignments))
+  
+  list(neg_ll, n_cluster)
 }
 
 
