@@ -57,5 +57,3 @@ plot_arrangement <- function(pl, n_cols = 2) {
   n_rows <- ceiling(n_plots / n_cols)
   marrangeGrob(pl, nrow = n_rows, ncol = n_cols)
 }
-
-
