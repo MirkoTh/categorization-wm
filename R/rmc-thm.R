@@ -131,13 +131,9 @@ predict_rmc_continuous <- function(
   #' @param stimuli \code{matrix} containing the feature values of one stimulus per row
   #' @param features_cat \code{vector} with names of categorical features as strings
   #' @param features_cont \code{vector} with names of continuous features as strings
-  #' @param n_values_cat \code{vector} nr of values for the categorical features as strings
-  #' features have the same nr
   #' @param feedback \code{integer vector} containing category labels as integers
-  #' @param a0 \code{integer} confidence in prior variance
-  #' @param lambda0 \code{integer} confidence in prior mean
-  #' @param coupling \code{integer} coupling probability c
-  #' @param phi \code{numeric} scaling parameter for response probabilities
+  #' @param params \code{list} containing model parameters 
+  #' (salience_f, salience_l, a_0, lambda_0, coupling, phi)
   #' @param max_clusters \code{integer} max nr of clusters to use in the code
   #' @param assignments \code{vector} of integers stating the category
   #' assignments. Defaults to NULL such that inferred categories are saved
@@ -149,25 +145,32 @@ predict_rmc_continuous <- function(
   stimuli,
   features_cat,
   features_cont,
-  n_values_cat,
   feedback,
-  salience_f,
-  salience_l,
-  coupling,
-  phi = 1, 
+  params,
   max_clusters = 100, 
   assignments = NULL, 
   print_posterior = FALSE
 ) {
+  # unpack parameters
+  salience_f <- params[["salience_f"]]
+  salience_l <- params[["salience_l"]]
+  a_0 <- params[["a_0"]]
+  lamda_0 <- params[["lambda_0"]]
+  coupling <- params[["coupling"]]
+  phi <- params[["phi"]]
+  
+  # stimuli information
   n_stimuli <- nrow(stimuli)
   n_features_cat <- length(features_cat) + 1 # including label feature
+  n_values_cat <- length(unique(stimuli[, features_cat[1]])) # assuming all cats equal
   n_features_cont <- length(features_cont)
   n_categories <- length(unique(feedback))
   
   assignments <- rep(0, n_stimuli) # assignment of stimuli to clusters
   
-  cluster_counts <- rep(0, max_clusters) # counts of stimuli in each cluster
   salience <- c(rep(salience_f, times = (n_features_cat - 1)), salience_l)
+  
+  cluster_counts <- rep(0, max_clusters) # counts of stimuli in each cluster
   # feature counts is a cluster by feature by value array 
   # and includes pseudocounts from prior
   feature_counts <- array(
@@ -179,10 +182,10 @@ predict_rmc_continuous <- function(
   out <- c()
   out$cat_probs <- matrix(nrow = nrow(stimuli), ncol = n_categories)
   
+  # these parameters are set as relative to the stimulus space, but they 
+  # could be handed over as parameters as well
   mu_0 <- (min(stimuli) + max(stimuli)) / 2
   sigma_sq_0 <- (max(stimuli) / 5) ^ 2
-  a_0 <- 2
-  lambda_0 <- 1
   for(i in 1:n_stimuli){
     # calculate prior, likelihoods, and posterior
     # clusters that already have stimuli
