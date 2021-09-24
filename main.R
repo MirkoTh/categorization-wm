@@ -3,6 +3,8 @@ library(docstring)
 library(grid)
 library(gridExtra)
 library(wiqid)
+library(future)
+library(furrr)
 
 dirs_local <- c("R/utils.R", "R/rmc-thm.R")
 walk(dirs_local, source)
@@ -11,45 +13,71 @@ walk(dirs_local, source)
 # Settings ----------------------------------------------------------------
 
 stepsize <- 1
-max_x <- 2
+max_x <- 10
 x1 <- seq(1, max_x, by = stepsize)
 x2 <- seq(1, max_x, by = stepsize)
-x3 <- seq(1, max_x, by = stepsize)
-tbl_features <- crossing(x1, x2, x3)
+tbl_features <- crossing(x1, x2)
 
 
 # Create Categories -------------------------------------------------------
 
-# n_cat_per_feat <- c(3)
-# stepsize_cat <- max_x / n_cat_per_feat
-# l_tbl_categories <- map(n_cat_per_feat, create_categories, tbl = tbl_features)
-# pl <- map2(l_tbl_categories, stepsize_cat, plot_clustered_grid)
-# plot_arrangement(pl)
-tbl_stimuli <- create_shepard_categories(tbl_features, "I", "x2")
-l_tbl_categories <- list()
-l_tbl_categories[[1]] <- tbl_stimuli
+n_cat_per_feat <- c(5)
+stepsize_cat <- max_x / n_cat_per_feat
+l_tbl_categories <- map(n_cat_per_feat, create_categories, tbl = tbl_features)
+pl <- map2(l_tbl_categories, stepsize_cat, plot_clustered_grid)
+plot_arrangement(pl)
 
 # Fit RMC to simulated Data -----------------------------------------------
 
 idx_used <- 1
-idxs <- 1:nrow(l_tbl_categories[[idx_used]])
-n <- 96
-# kind of badham, sanborn, & maylor
-idx_shuffle <- sample(rep(rep(idxs, 2), 6), 96, replace = FALSE)
-# actual goal of 2d feature space
-#idx_shuffle <- sample(idxs, n, replace = TRUE)
-tbl_used <- l_tbl_categories[[idx_used]][idx_shuffle, ]
-params_init <- c(.31, 1.3)
+ns <- c(50, 100, 200)
 
-optim(
-  params_init, wrap_rmc, tbl_data = tbl_used,
+n <- ns[[1]]
+idxs <- 1:nrow(l_tbl_categories[[idx_used]])
+idxs_shuffle <- map(ns, sample, replace = TRUE, x = idxs)
+l_tbl_used <- map(idxs_shuffle, ~ l_tbl_categories[[idx_used]][.x, ])
+tbl_used <- l_tbl_used[[idx_used]]
+
+
+# order: coupling, phi, salience_l, a_0, lambda_0
+# optimal for 100 trials and 9 categories: 0.24191989 2.62343018 0.01000000 0.04399989 0.01000000
+params_init <- c(.22, 1.3, .1615, .1, .1)
+bounds_lower <- c(.01, .01, .001, .01, .001)
+bounds_upper <- c(.5, 3, 3, 1, 1)
+
+plan(multisession = min((parallel::detectCores() - 1), length(l_tbl_used)))
+
+
+optim_my_little_function <- function(tbl, ...) {
+  optim(tbl_data = tbl, ...)
+}
+
+# for comparing different training lengths
+l_results <- future_map(
+  l_tbl_used,
+  optim_my_little_function,
+  n_categories = 25,
+  par = params_init,
+  fn = wrap_rmc,
   method = "L-BFGS-B",
-  lower = c(.01, .01), upper = c(.6, 2),
-  control = list(trace = 1)
+  lower = bounds_lower,
+  upper = bounds_upper
 )
 
-library(future)
-library(furrr)
+saveRDS(l_results, file = "data/optimization_results.Rda")
+
+#l_results <- readRDS("data/optimization_results.Rda")
+
+# for fitting only one training length
+optim(
+  params_init, 
+  wrap_rmc, 
+  tbl_data = l_tbl_used[[1]], n_categories = 25,
+  method = "L-BFGS-B",
+  lower = c(.01, .01, .01, .01, .01), upper = c(.6, 3, 3, 2, 2)
+)
+
+
 coupling <- seq(.2, .35, by = .025)
 phi <- seq(1, 2.5, by = .25)
 tbl_params <- crossing(coupling, phi)
@@ -82,32 +110,52 @@ ggplot(tbl_params, aes(coupling, phi, fill = neg_ll)) +
 
 
 ## With Feedback ----------------------------------------------------------
+# iter   10 value 65.101040
+# iter   20 value 63.843890
+# final  value 63.843890 
+# stopped after 20 iterations
+# $par
+# [1] 0.24191989 2.62343018 0.01000000 0.04399989 0.01000000
+# 
+# $value
+# [1] 63.84389
+# 
+# $counts
+# function gradient 
+# 88       88 
+# 
+# $convergence
+# [1] 52
+# 
+# $message
+# [1] "ERROR: ABNORMAL_TERMINATION_IN_LNSRCH"
 
-stimuli <- tbl_used[, c("x1", "x2", "x3")]
-features_cat <- c("x1", "x2", "x3") 
-features_cont <- c() 
-n_values_cat <- 2
+
+stimuli <- tbl_used[, c("x1", "x2")]
+features_cont <- c("x1", "x2") 
+features_cat <- c() 
+n_values_cat <- NULL
 feedback <- NULL
 print_posterior <- FALSE
 previous_learning <- NULL
 feedback <- tbl_used$category
 params <- list(
-  "coupling" = .5044,
-  "phi" = .7738, #1,
-  "salience_f" = .6888,#1,
-  "salience_l" = .1615,#1,
-  "a_0" = 2,
-  "lambda_0" = 1,
+  "coupling" = .24191989,#.5044,
+  "phi" = 2.62343018, #.7738, #1,
+  "salience_f" = 1, #.6888,#1,
+  "salience_l" = .01, #.1615,#1,
+  "a_0" = .04399989, #2,
+  "lambda_0" = .01,
   "sigma_sq_0" = (max(tbl_used[, c("x1", "x2")]) / 4) ^ 2,
   "mu_0" = (min(tbl_used[, c("x1", "x2")]) + max(tbl_used[, c("x1", "x2")])) / 2
 )
 n_categories <- length(unique(tbl_used$category))
 
 l_pred <- predict_rmc_continuous(
-  stimuli = tbl_used[, c("x1", "x2", "x3")], 
-  features_cat =c("x1", "x2", "x3"),
-  features_cont = c(),
-  n_values_cat = 2,
+  stimuli = tbl_used[, c("x1", "x2")], 
+  features_cat = c(),
+  features_cont = c("x1", "x2"),
+  n_values_cat = NULL,
   n_categories = n_categories,
   feedback = tbl_used$category,
   params = params,
@@ -121,9 +169,10 @@ tbl_used$preds <- apply(
 tbl_used$n_training <- n
 tbl_used$n_categories <- length(unique(tbl_used$category))
 
-l_summary <- summarize_blocks(tbl_used, 16)
-plot_block_summary(l_summary)
 
+neg_ll <- -sum(log(l_pred$cat_probs[cbind(1:nrow(tbl_used), tbl_used$category)]))
+
+plot_resp_prob_by_block(l_pred, tbl_used$category - 1, length_block = 20)
 
 ## Without Feedback -------------------------------------------------------
 
