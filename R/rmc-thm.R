@@ -423,27 +423,48 @@ plot_block_summary <- function(l) {
   grid.draw(pl)
 }
 
-
-wrap_rmc <- function(coupling, phi, tbl_data) { # params
-  # p_1 <- params[1]
-  # p_2 <- params[2]
+wrap_rmc <- function (params, tbl_data, n_categories) { #coupling, phi
+  params <- list(
+    "coupling" = params[[1]],
+    "phi" = params[[2]],
+    "salience_f" = 1, # not used as all continuous features
+    "salience_l" = params[[3]],
+    "a_0" = params[[4]],
+    "lambda_0" = params[[5]],
+    "sigma_sq_0" = (max(tbl_data[, c("x1", "x2")]) / 4) ^ 2,
+    "mu_0" = (min(tbl_data[, c("x1", "x2")]) + max(tbl_data[, c("x1", "x2")])) / 2
+  )
   l_preds <- predict_rmc_continuous(
-    stimuli = tbl_data[, c("x1", "x2")], 
+    stimuli = tbl_data[, c("x1", "x2")],
     features_cat = c(),
     features_cont = c("x1", "x2"),
     n_values_cat = c(),
+    n_categories = n_categories,
     feedback = tbl_data$category,
-    salience_f = 1,
-    salience_l = 1,
-    coupling = coupling,#p_1,#
-    phi = phi, #p_2, #, 
-    max_clusters = nrow(tbl_data),
+    params = params,
     print_posterior = FALSE
   )
-  neg_ll <- sum(log(l_preds$cat_probs[cbind(1:nrow(tbl_data), tbl_data$category)]))
+  neg_ll <- -sum(log(l_preds$cat_probs[cbind(1:nrow(tbl_data), tbl_data$category)]))
   n_cluster <- length(unique(l_preds$assignments))
   
-  list(neg_ll, n_cluster)
+  neg_ll
+  #list(neg_ll, n_cluster)
 }
 
 
+plot_resp_prob_by_block <- function(l, feedback, length_block) {
+  as_tibble(l$cat_probs[cbind(1:nrow(l$cat_probs), feedback + 1)]) %>%
+    mutate(idx = seq_along(value)) %>%
+    mutate(block_nr = ceiling(idx / length_block)) %>%
+    group_by(block_nr) %>%
+    summarize(cat_prob_avg = mean(value)) %>%
+    ggplot(aes(block_nr, cat_prob_avg)) +
+    geom_line() +
+    geom_point(color = "white", size = 4) +
+    geom_point() +
+    theme_bw() +
+    labs(
+      x = "Block Nr.",
+      y = "Prop. Correct"
+    )
+}
