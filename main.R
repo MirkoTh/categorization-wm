@@ -11,28 +11,33 @@ walk(dirs_local, source)
 # Settings ----------------------------------------------------------------
 
 stepsize <- 1
-max_x <- 6
+max_x <- 2
 x1 <- seq(1, max_x, by = stepsize)
 x2 <- seq(1, max_x, by = stepsize)
-tbl_features <- crossing(x1, x2)
+x3 <- seq(1, max_x, by = stepsize)
+tbl_features <- crossing(x1, x2, x3)
 
 
 # Create Categories -------------------------------------------------------
 
-n_cat_per_feat <- c(2, 3)
-stepsize_cat <- max_x / n_cat_per_feat
-l_tbl_categories <- map(n_cat_per_feat, create_categories, tbl = tbl_features)
-pl <- map2(l_tbl_categories, stepsize_cat, plot_clustered_grid)
-plot_arrangement(pl)
-
-
+# n_cat_per_feat <- c(3)
+# stepsize_cat <- max_x / n_cat_per_feat
+# l_tbl_categories <- map(n_cat_per_feat, create_categories, tbl = tbl_features)
+# pl <- map2(l_tbl_categories, stepsize_cat, plot_clustered_grid)
+# plot_arrangement(pl)
+tbl_stimuli <- create_shepard_categories(tbl_features, "I", "x2")
+l_tbl_categories <- list()
+l_tbl_categories[[1]] <- tbl_stimuli
 
 # Fit RMC to simulated Data -----------------------------------------------
 
-idx_used <- 2
+idx_used <- 1
 idxs <- 1:nrow(l_tbl_categories[[idx_used]])
-n <- 100
-idx_shuffle <- sample(idxs, n, replace = TRUE)
+n <- 96
+# kind of badham, sanborn, & maylor
+idx_shuffle <- sample(rep(rep(idxs, 2), 6), 96, replace = FALSE)
+# actual goal of 2d feature space
+#idx_shuffle <- sample(idxs, n, replace = TRUE)
 tbl_used <- l_tbl_categories[[idx_used]][idx_shuffle, ]
 params_init <- c(.31, 1.3)
 
@@ -78,23 +83,31 @@ ggplot(tbl_params, aes(coupling, phi, fill = neg_ll)) +
 
 ## With Feedback ----------------------------------------------------------
 
+stimuli <- tbl_used[, c("x1", "x2", "x3")]
+features_cat <- c("x1", "x2", "x3") 
+features_cont <- c() 
+n_values_cat <- 2
+feedback <- NULL
+print_posterior <- FALSE
+previous_learning <- NULL
+feedback <- tbl_used$category
 params <- list(
-  "coupling" = .3,
-  "phi" = 1,
-  "salience_f" = 1,
-  "salience_l" = 1,
+  "coupling" = .5044,
+  "phi" = .7738, #1,
+  "salience_f" = .6888,#1,
+  "salience_l" = .1615,#1,
   "a_0" = 2,
   "lambda_0" = 1,
-  "sigma_sq_0" = (max(tbl_used[, c("x1", "x2")]) / 5) ^ 2,
+  "sigma_sq_0" = (max(tbl_used[, c("x1", "x2")]) / 4) ^ 2,
   "mu_0" = (min(tbl_used[, c("x1", "x2")]) + max(tbl_used[, c("x1", "x2")])) / 2
 )
 n_categories <- length(unique(tbl_used$category))
 
 l_pred <- predict_rmc_continuous(
-  stimuli = tbl_used[, c("x1", "x2")], 
-  features_cat = c(),
-  features_cont = c("x1", "x2"),
-  n_values_cat = NULL,
+  stimuli = tbl_used[, c("x1", "x2", "x3")], 
+  features_cat =c("x1", "x2", "x3"),
+  features_cont = c(),
+  n_values_cat = 2,
   n_categories = n_categories,
   feedback = tbl_used$category,
   params = params,
@@ -108,7 +121,7 @@ tbl_used$preds <- apply(
 tbl_used$n_training <- n
 tbl_used$n_categories <- length(unique(tbl_used$category))
 
-l_summary <- summarize_blocks(tbl_used, 20)
+l_summary <- summarize_blocks(tbl_used, 16)
 plot_block_summary(l_summary)
 
 
@@ -120,12 +133,6 @@ previous_learning <- list(
   "cluster_counts" = l_pred[["cluster_counts"]],
   "assignments" = l_pred[["assignments"]]
 )
-stimuli <- tbl_used[, c("x1", "x2")]
-features_cat <- c() 
-features_cont <- c("x1", "x2") 
-n_values_cat <- NULL 
-feedback <- NULL
-print_posterior <- FALSE
 
 l_pred_trained <- predict_rmc_continuous(
   stimuli = stimuli, 

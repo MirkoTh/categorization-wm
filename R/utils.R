@@ -20,6 +20,24 @@ create_categories <- function(tbl, n_cat_per_feat) {
   return(tbl)
 }
 
+
+create_shepard_categories <- function(tbl, type, dim_anchor){
+  #' create Shepard et al. categories with binary features
+  #' 
+  #' @description cut three-dimensional feature space into categories using Shepard's types
+  #' @param tbl \code{tibble} containing each of the three features in a column
+  #' @param type upper case Roman character stating the type number
+  #' @param dim_anchor the "anchoring" dimension
+  #' @return the \code{tibble} with an added column stating the category
+  #' 
+  if (type == "I") {
+    thx <- colMeans(tbl[, dim_anchor])
+    tbl$category <- cut(tbl$x2, c(0, thx, Inf), labels = FALSE)
+  }
+  return(tbl)
+}
+
+
 plot_clustered_grid <- function(tbl, stepsize_cat) {
   #' plot clusters in grid
   #' 

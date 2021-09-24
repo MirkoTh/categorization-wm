@@ -111,12 +111,6 @@ predict_rmc_continuous <- function(
       )
     }
     
-    # log_likelihood_prep <- abind::abind(
-    #   pdfs_cat_log,
-    #   pdfs_cont_log,
-    #   along = 2
-    # )
-    
     log_likelihood <- apply(
       log_likelihood_prep, MARGIN = c(1, 3), FUN = sum
     )
