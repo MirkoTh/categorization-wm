@@ -55,7 +55,7 @@ optim_my_little_function <- function(tbl, ...) {
 # for comparing different training lengths
 l_results <- future_map(
   l_tbl_used,
-  optim_my_little_function,
+  safely(optim_my_little_function),
   n_categories = 25,
   par = params_init,
   fn = wrap_rmc,
@@ -130,49 +130,42 @@ ggplot(tbl_params, aes(coupling, phi, fill = neg_ll)) +
 # $message
 # [1] "ERROR: ABNORMAL_TERMINATION_IN_LNSRCH"
 
-
-stimuli <- tbl_used[, c("x1", "x2")]
-features_cont <- c("x1", "x2") 
-features_cat <- c() 
-n_values_cat <- NULL
-feedback <- NULL
-print_posterior <- FALSE
-previous_learning <- NULL
-feedback <- tbl_used$category
-params <- list(
-  "coupling" = .24191989,#.5044,
-  "phi" = 2.62343018, #.7738, #1,
-  "salience_f" = 1, #.6888,#1,
-  "salience_l" = .01, #.1615,#1,
-  "a_0" = .04399989, #2,
-  "lambda_0" = .01,
-  "sigma_sq_0" = (max(tbl_used[, c("x1", "x2")]) / 4) ^ 2,
-  "mu_0" = (min(tbl_used[, c("x1", "x2")]) + max(tbl_used[, c("x1", "x2")])) / 2
-)
-n_categories <- length(unique(tbl_used$category))
-
-l_pred <- predict_rmc_continuous(
-  stimuli = tbl_used[, c("x1", "x2")], 
-  features_cat = c(),
-  features_cont = c("x1", "x2"),
-  n_values_cat = NULL,
-  n_categories = n_categories,
-  feedback = tbl_used$category,
-  params = params,
-  previous_learning = NULL, 
-  print_posterior = FALSE
-)
-
-tbl_used$preds <- apply(
-  l_pred$cat_probs, 1, FUN = function(x) which.max(x)
-)
-tbl_used$n_training <- n
-tbl_used$n_categories <- length(unique(tbl_used$category))
-
-
+ls_pred <- map2(l_tbl_used, l_results, predict_given_fit, n_categories = 25)
 neg_ll <- -sum(log(l_pred$cat_probs[cbind(1:nrow(tbl_used), tbl_used$category)]))
 
-plot_resp_prob_by_block(l_pred, tbl_used$category - 1, length_block = 20)
+l_pred <- ls_pred[[1]]
+tbl_used <- l_tbl_used[[1]]
+
+l_blocks <- map2(ls_pred, l_tbl_used, summarize_cat_probs, n_trials = 25)
+tbl <- l_blocks %>%
+  reduce(rbind) %>%
+  mutate(length_training = as.factor(length_training))
+
+ggplot(tbl, aes(block_nr, probability_mn, group = length_training)) +
+  geom_line(aes(color = length_training)) +
+  geom_point(color = "white", size = 3) +
+  geom_point(aes(color = length_training)) +
+  ggrepel::geom_label_repel(
+    data = tbl %>% group_by(length_training) %>% filter(block_nr == max(block_nr)),
+    aes(block_nr + .75, probability_mn, label = str_c("Nr. Clusters = ", n_clusters))
+  ) +
+  theme_bw() +
+  scale_color_brewer(palette = "Set1") +
+  scale_x_continuous(breaks = seq(1, max(tbl$block_nr), by = 1)) +
+  labs(
+    x = "Block Nr. (Block-Length = 25)",
+    y = "Response Probability (Correct)"
+  )
+
+# using max probs instead of prob values
+# tbl_used$preds <- apply(
+#   l_pred$cat_probs, 1, FUN = function(x) which.max(x)
+# )
+# tbl_used$n_training <- n
+# tbl_used$n_categories <- length(unique(tbl_used$category))
+# l <- summarize_blocks(tbl_used, 17, FALSE)
+# plot_block_summary(l)
+
 
 ## Without Feedback -------------------------------------------------------
 

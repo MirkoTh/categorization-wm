@@ -452,19 +452,64 @@ wrap_rmc <- function (params, tbl_data, n_categories) { #coupling, phi
 }
 
 
-plot_resp_prob_by_block <- function(l, feedback, length_block) {
-  as_tibble(l$cat_probs[cbind(1:nrow(l$cat_probs), feedback + 1)]) %>%
-    mutate(idx = seq_along(value)) %>%
-    mutate(block_nr = ceiling(idx / length_block)) %>%
-    group_by(block_nr) %>%
-    summarize(cat_prob_avg = mean(value)) %>%
-    ggplot(aes(block_nr, cat_prob_avg)) +
-    geom_line() +
-    geom_point(color = "white", size = 4) +
-    geom_point() +
-    theme_bw() +
-    labs(
-      x = "Block Nr.",
-      y = "Prop. Correct"
-    )
+summarize_cat_probs <- function(l_pred, tbl_used, n_trials) {
+  probs_c <- l_pred$cat_probs[cbind(1:nrow(l_pred$cat_probs), tbl_used$category)]
+  tbl_probs <- tibble(
+    trial = 1:length(probs_c),
+    probability = probs_c
+  )
+  tbl_probs$block_nr <- cut(
+    tbl_probs$trial, c(seq(0, max(tbl_probs$trial), by = n_trials), Inf),
+    labels = FALSE
+  )
+  tbl_probs %>% 
+    mutate(
+      length_training = max(trial),
+      n_clusters = length(unique(l_pred$assignments))
+    ) %>%
+    group_by(length_training, block_nr) %>%
+    summarize(
+      probability_mn = mean(probability),
+      n_clusters = max(n_clusters)
+      ) %>%
+    ungroup()
 }
+
+predict_given_fit <- function(tbl_used, l_fit, n_categories) {
+  parms <- l_fit$par
+  stimuli <- tbl_used[, c("x1", "x2")]
+  features_cont <- c("x1", "x2") 
+  features_cat <- c() 
+  n_values_cat <- NULL
+  feedback <- NULL
+  print_posterior <- FALSE
+  previous_learning <- NULL
+  feedback <- tbl_used$category
+  params <- list(
+    "coupling" = parms[1],
+    "phi" = parms[2],
+    "salience_f" = 1,
+    "salience_l" = parms[3],
+    "a_0" = parms[4], #2,
+    "lambda_0" = parms[5],
+    "sigma_sq_0" = (max(tbl_used[, c("x1", "x2")]) / 4) ^ 2,
+    "mu_0" = (min(tbl_used[, c("x1", "x2")]) + max(tbl_used[, c("x1", "x2")])) / 2
+  )
+
+  l_pred <- predict_rmc_continuous(
+    stimuli = tbl_used[, c("x1", "x2")], 
+    features_cat = c(),
+    features_cont = c("x1", "x2"),
+    n_values_cat = NULL,
+    n_categories = n_categories,
+    feedback = tbl_used$category,
+    params = params,
+    previous_learning = NULL, 
+    print_posterior = FALSE
+  )
+  
+  return(l_pred)
+}
+
+
+
