@@ -452,7 +452,7 @@ wrap_rmc <- function (params, tbl_data, n_categories) { #coupling, phi
 }
 
 
-summarize_cat_probs <- function(l_pred, tbl_used, n_trials) {
+summarize_cat_probs <- function(l_pred, tbl_used, n_categories, n_trials) {
   probs_c <- l_pred$cat_probs[cbind(1:nrow(l_pred$cat_probs), tbl_used$category)]
   tbl_probs <- tibble(
     trial = 1:length(probs_c),
@@ -464,10 +464,11 @@ summarize_cat_probs <- function(l_pred, tbl_used, n_trials) {
   )
   tbl_probs %>% 
     mutate(
+      n_categories = n_categories,
       length_training = max(trial),
       n_clusters = length(unique(l_pred$assignments))
     ) %>%
-    group_by(length_training, block_nr) %>%
+    group_by(n_categories, length_training, block_nr) %>%
     summarize(
       probability_mn = mean(probability),
       n_clusters = max(n_clusters)
@@ -476,7 +477,7 @@ summarize_cat_probs <- function(l_pred, tbl_used, n_trials) {
 }
 
 predict_given_fit <- function(tbl_used, l_fit, n_categories) {
-  parms <- l_fit$par
+  parms <- l_fit$result$par
   stimuli <- tbl_used[, c("x1", "x2")]
   features_cont <- c("x1", "x2") 
   features_cat <- c() 

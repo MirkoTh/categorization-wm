@@ -13,7 +13,7 @@ walk(dirs_local, source)
 # Settings ----------------------------------------------------------------
 
 stepsize <- 1
-max_x <- 10
+max_x <- 8
 x1 <- seq(1, max_x, by = stepsize)
 x2 <- seq(1, max_x, by = stepsize)
 tbl_features <- crossing(x1, x2)
@@ -21,7 +21,7 @@ tbl_features <- crossing(x1, x2)
 
 # Create Categories -------------------------------------------------------
 
-n_cat_per_feat <- c(5)
+n_cat_per_feat <- c(2, 4, 8)
 stepsize_cat <- max_x / n_cat_per_feat
 l_tbl_categories <- map(n_cat_per_feat, create_categories, tbl = tbl_features)
 pl <- map2(l_tbl_categories, stepsize_cat, plot_clustered_grid)
@@ -29,114 +29,56 @@ plot_arrangement(pl)
 
 # Fit RMC to simulated Data -----------------------------------------------
 
+## for testing purposes
 idx_used <- 1
-ns <- c(50, 100, 200)
+ns <- c(50, 200)
 
 n <- ns[[1]]
 idxs <- 1:nrow(l_tbl_categories[[idx_used]])
-idxs_shuffle <- map(ns, sample, replace = TRUE, x = idxs)
-l_tbl_used <- map(idxs_shuffle, ~ l_tbl_categories[[idx_used]][.x, ])
+idxs_shuffle <- map(rep(ns, each = length(l_tbl_categories)), sample, replace = TRUE, x = idxs)
+l_tbl_used <- map2(idxs_shuffle, rep(l_tbl_categories, length(ns)), ~ .y[.x, ])
 tbl_used <- l_tbl_used[[idx_used]]
+n_categories <- rep(n_cat_per_feat^2, length(ns))
 
 
 # order: coupling, phi, salience_l, a_0, lambda_0
 # optimal for 100 trials and 9 categories: 0.24191989 2.62343018 0.01000000 0.04399989 0.01000000
-params_init <- c(.22, 1.3, .1615, .1, .1)
-bounds_lower <- c(.01, .01, .001, .01, .001)
-bounds_upper <- c(.5, 3, 3, 1, 1)
+params_init <- c(.1, 3, .01, .02, .01)
+bounds_lower <- c(.01, .01, .00001, .00001, .00001)
+bounds_upper <- c(.5, 10, 3, 1, 1)
 
 plan(multisession = min((parallel::detectCores() - 1), length(l_tbl_used)))
 
 
-optim_my_little_function <- function(tbl, ...) {
-  optim(tbl_data = tbl, ...)
+wrap_optim <- function(tbl, n_categories, ...) {
+  r <- optim(tbl_data = tbl, n_categories = n_categories, ...)
+  beepr::beep()
+  return(r)
 }
 
 # for comparing different training lengths
-l_results <- future_map(
+l_results <- future_map2(
   l_tbl_used,
-  safely(optim_my_little_function),
-  n_categories = 25,
+  n_categories,
+  safely(wrap_optim),
   par = params_init,
   fn = wrap_rmc,
   method = "L-BFGS-B",
   lower = bounds_lower,
-  upper = bounds_upper
-)
-
-saveRDS(l_results, file = "data/optimization_results.Rda")
-
-#l_results <- readRDS("data/optimization_results.Rda")
-
-# for fitting only one training length
-optim(
-  params_init, 
-  wrap_rmc, 
-  tbl_data = l_tbl_used[[1]], n_categories = 25,
-  method = "L-BFGS-B",
-  lower = c(.01, .01, .01, .01, .01), upper = c(.6, 3, 3, 2, 2)
+  upper = bounds_upper,
+  control = list(factr = .001)#.001
 )
 
 
-coupling <- seq(.2, .35, by = .025)
-phi <- seq(1, 2.5, by = .25)
-tbl_params <- crossing(coupling, phi)
-
-plan(multisession = parallel::detectCores())
-
-l_out <- future_pmap(
-  tbl_params,
-  wrap_rmc,
-  tbl_data = tbl_used
-)
-
-tbl_params$neg_ll <- map_dbl(l_out, 1)
-tbl_params$n_cluster <- map_int(l_out, 2)
-
-ggplot(tbl_params, aes(coupling, phi, fill = neg_ll)) +
-  geom_raster(aes(fill = neg_ll)) +
-  geom_text(aes(label = n_cluster), color = "white") +
-  theme_bw() +
-  scale_fill_viridis_c() +
-  labs(
-    title = "Neg. LL & Nr. Clusters",
-    x = "Coupling Probability",
-    y = "Phi"
+saveRDS(
+  l_results, 
+  file = str_c(
+    "data/", lubridate::today(), "-optimization_results.Rda"
   )
+)
 
-
-
-# To Play Around ----------------------------------------------------------
-
-
-## With Feedback ----------------------------------------------------------
-# iter   10 value 65.101040
-# iter   20 value 63.843890
-# final  value 63.843890 
-# stopped after 20 iterations
-# $par
-# [1] 0.24191989 2.62343018 0.01000000 0.04399989 0.01000000
-# 
-# $value
-# [1] 63.84389
-# 
-# $counts
-# function gradient 
-# 88       88 
-# 
-# $convergence
-# [1] 52
-# 
-# $message
-# [1] "ERROR: ABNORMAL_TERMINATION_IN_LNSRCH"
-
-ls_pred <- map2(l_tbl_used, l_results, predict_given_fit, n_categories = 25)
-neg_ll <- -sum(log(l_pred$cat_probs[cbind(1:nrow(tbl_used), tbl_used$category)]))
-
-l_pred <- ls_pred[[1]]
-tbl_used <- l_tbl_used[[1]]
-
-l_blocks <- map2(ls_pred, l_tbl_used, summarize_cat_probs, n_trials = 25)
+ls_pred <- future_pmap(list(l_tbl_used, l_results, n_categories), predict_given_fit)
+l_blocks <- pmap(list(ls_pred, l_tbl_used, n_categories), summarize_cat_probs, n_trials = 25)
 tbl <- l_blocks %>%
   reduce(rbind) %>%
   mutate(length_training = as.factor(length_training))
@@ -147,15 +89,21 @@ ggplot(tbl, aes(block_nr, probability_mn, group = length_training)) +
   geom_point(aes(color = length_training)) +
   ggrepel::geom_label_repel(
     data = tbl %>% group_by(length_training) %>% filter(block_nr == max(block_nr)),
-    aes(block_nr + .75, probability_mn, label = str_c("Nr. Clusters = ", n_clusters))
+    aes(block_nr, probability_mn, label = str_c("Nr. Clusters = ", n_clusters))
   ) +
+  facet_wrap(~ n_categories) +
   theme_bw() +
-  scale_color_brewer(palette = "Set1") +
+  scale_color_brewer(name = "Training Length\nNr. Trials", palette = "Set1") +
   scale_x_continuous(breaks = seq(1, max(tbl$block_nr), by = 1)) +
   labs(
     x = "Block Nr. (Block-Length = 25)",
     y = "Response Probability (Correct)"
   )
+
+# To Play Around ----------------------------------------------------------
+
+
+## With Feedback ----------------------------------------------------------
 
 # using max probs instead of prob values
 # tbl_used$preds <- apply(
@@ -166,6 +114,27 @@ ggplot(tbl, aes(block_nr, probability_mn, group = length_training)) +
 # l <- summarize_blocks(tbl_used, 17, FALSE)
 # plot_block_summary(l)
 
+stimuli <- tbl_used[, c("x1", "x2")]
+features_cat <- c("x1", "x2") 
+features_cont <- c() 
+n_values_cat <- 2
+feedback <- NULL
+print_posterior <- FALSE
+previous_learning <- NULL
+feedback <- tbl_used$category
+n_categories <- 100
+
+params <- list(
+  "coupling" = .5044,
+  "phi" = .7738, #1,
+  "salience_f" = .6888,#1,
+  "salience_l" = .1615,#1
+  "a_0" = 2,
+  "lambda_0" = 1,
+  "sigma_sq_0" = (max(tbl_used[, c("x1", "x2")]) / 5) ^ 2,
+  "sigma_sq_0" = (max(tbl_used[, c("x1", "x2")]) / 4) ^ 2,
+  "mu_0" = (min(tbl_used[, c("x1", "x2")]) + max(tbl_used[, c("x1", "x2")])) / 2
+)
 
 ## Without Feedback -------------------------------------------------------
 
