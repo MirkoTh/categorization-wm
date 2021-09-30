@@ -31,7 +31,7 @@ plot_arrangement(pl)
 
 ## for testing purposes
 idx_used <- 1
-ns <- c(50, 200)
+ns <- c(50, 100, 200)
 
 n <- ns[[1]]
 idxs <- 1:nrow(l_tbl_categories[[idx_used]])
@@ -73,7 +73,7 @@ l_results <- future_map2(
 saveRDS(
   l_results, 
   file = str_c(
-    "data/", lubridate::today(), "-optimization_results.Rda"
+    "data/", lubridate::today(), "-optimization_results-more-trials.Rda"
   )
 )
 
@@ -81,15 +81,25 @@ ls_pred <- future_pmap(list(l_tbl_used, l_results, n_categories), predict_given_
 l_blocks <- pmap(list(ls_pred, l_tbl_used, n_categories), summarize_cat_probs, n_trials = 25)
 tbl <- l_blocks %>%
   reduce(rbind) %>%
-  mutate(length_training = as.factor(length_training))
+  mutate(
+    n_categories = factor(
+      n_categories, levels = c(4, 16, 64), 
+      labels = str_c("Nr. Categories = ", c(4, 16, 64)),
+      ordered = TRUE),
+    length_training = as.factor(length_training),
+    )
 
+                             
 ggplot(tbl, aes(block_nr, probability_mn, group = length_training)) +
   geom_line(aes(color = length_training)) +
   geom_point(color = "white", size = 3) +
   geom_point(aes(color = length_training)) +
   ggrepel::geom_label_repel(
     data = tbl %>% group_by(length_training) %>% filter(block_nr == max(block_nr)),
-    aes(block_nr, probability_mn, label = str_c("Nr. Clusters = ", n_clusters))
+    aes(
+      block_nr, probability_mn, 
+      label = str_c("Nr. Clusters = ", n_clusters)
+      ), alpha = .3
   ) +
   facet_wrap(~ n_categories) +
   theme_bw() +

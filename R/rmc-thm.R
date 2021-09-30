@@ -424,6 +424,8 @@ plot_block_summary <- function(l) {
 }
 
 wrap_rmc <- function (params, tbl_data, n_categories) { #coupling, phi
+  #' wrap prediction function for fitting purposes
+  #' 
   params <- list(
     "coupling" = params[[1]],
     "phi" = params[[2]],
@@ -453,6 +455,8 @@ wrap_rmc <- function (params, tbl_data, n_categories) { #coupling, phi
 
 
 summarize_cat_probs <- function(l_pred, tbl_used, n_categories, n_trials) {
+  #' summarize categorized stimuli into blocks of n_trials
+  #' 
   probs_c <- l_pred$cat_probs[cbind(1:nrow(l_pred$cat_probs), tbl_used$category)]
   tbl_probs <- tibble(
     trial = 1:length(probs_c),
@@ -477,6 +481,8 @@ summarize_cat_probs <- function(l_pred, tbl_used, n_categories, n_trials) {
 }
 
 predict_given_fit <- function(tbl_used, l_fit, n_categories) {
+  #' predict from the model given fixed parameters
+  #' 
   parms <- l_fit$result$par
   stimuli <- tbl_used[, c("x1", "x2")]
   features_cont <- c("x1", "x2") 
